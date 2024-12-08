@@ -1,17 +1,26 @@
 <template>
-  <div id="app">
+  <div id="app" :class="{ dark: isDarkMode }">
     <div class="header">
-      <h1>Pemilihan Pemimpin Kelas</h1>
+      <h1>{{ currentLanguage.title }}</h1>
+      <button @click="toggleDarkMode">
+        {{ isDarkMode ? currentLanguage.lightMode : currentLanguage.darkMode }}
+      </button>
+      <select v-model="selectedLanguage" @change="changeLanguage">
+        <option v-for="(lang, index) in languages" :key="index" :value="lang.code">
+          {{ lang.name }}
+        </option>
+      </select>
+      <button @click="exportToPDF">{{ currentLanguage.exportPDF }}</button>
     </div>
     <div class="input-group">
       <input
         v-model="newCandidate"
-        placeholder="Tambahkan calon pemimpin ....."
+        :placeholder="currentLanguage.addCandidatePlaceholder"
         @keypress.enter="addCandidateOnEnter"
       />
       <button @click="addCandidate">
         <font-awesome-icon :icon="['fas', 'plus']" class="icon" />
-        Tambah
+        {{ currentLanguage.add }}
       </button>
     </div>
     <div class="candidates">
@@ -21,82 +30,238 @@
             <font-awesome-icon icon="user" class="icon" />
             <span class="candidate-name">{{ candidate.name }}</span>
           </button>
+          <button @click="support(candidate.id)">
+            <font-awesome-icon icon="thumbs-up" class="icon" />
+            {{ currentLanguage.support }}
+          </button>
         </div>
       </div>
       <div v-else class="thank-you">
-        <p>Terima kasih telah memilih!</p>
+        <p>{{ currentLanguage.thankYou }}</p>
       </div>
     </div>
     <div class="vote-count">
-      <h2>Hasil Voting</h2>
+      <h2>{{ currentLanguage.voteResults }}</h2>
       <div v-for="candidate in candidates" :key="candidate.id" class="result">
         <span>{{ candidate.name }}:</span> <span>{{ candidate.votes }}</span>
       </div>
+      <h2>{{ currentLanguage.statistics }}</h2>
+      <div class="statistics">
+        <div v-for="candidate in candidates" :key="candidate.id">
+          <span
+            >{{ candidate.name }} - {{ ((candidate.votes / totalVotes) * 100).toFixed(2) }}%</span
+          >
+        </div>
+      </div>
     </div>
-    <!-- <div class="actions">
-      <button @click="resetVotes">Reset Voting</button>
-    </div> -->
+    <div class="education">
+      <h2>{{ currentLanguage.education }}</h2>
+      <div v-for="candidate in candidates" :key="candidate.id" class="candidate-info">
+        <h3>{{ candidate.name }}</h3>
+        <p>{{ candidate.info }}</p>
+      </div>
+    </div>
+    <div class="comments">
+      <h2>{{ currentLanguage.comments }}</h2>
+      <input
+        v-model="newComment"
+        :placeholder="currentLanguage.commentPlaceholder"
+        @keypress.enter="addComment"
+      />
+      <div v-for="comment in comments" :key="comment.id" class="comment">
+        <p>{{ comment.text }}</p>
+      </div>
+    </div>
     <div class="copyright">
       <p>&copy; 2024 <a href="https://www.github.com/AlpianPPLG">Alpian</a> All rights reserved.</p>
+    </div>
+    <div v-if="reminderMessage" class="reminder">
+      <p>{{ reminderMessage }}</p>
     </div>
   </div>
 </template>
 
 <script>
 import Swal from 'sweetalert2'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
+import { ref, onMounted } from 'vue'
 
 export default {
-  data() {
-    return {
-      newCandidate: '',
-      candidates: [],
-      userHasVoted: false
+  setup() {
+    const newCandidate = ref('')
+    const candidates = ref([])
+    const userHasVoted = ref(false)
+    const newComment = ref('')
+    const comments = ref([])
+    const isDarkMode = ref(false)
+    const selectedLanguage = ref('en')
+    const languages = ref([
+      { code: 'en', name: 'English' },
+      { code: 'id', name: 'Bahasa Indonesia' }
+    ])
+    const translations = {
+      en: {
+        title: 'Class Leader Election',
+        lightMode: 'Light Mode',
+        darkMode: 'Dark Mode',
+        addCandidatePlaceholder: 'Add a candidate...',
+        add: 'Add',
+        support: 'Support',
+        thankYou: 'Thank you for voting!',
+        voteResults: 'Voting Results',
+        statistics: 'Statistics',
+        education: 'Candidate Information',
+        comments: 'Comments',
+        commentPlaceholder: 'Write a comment...',
+        exportPDF: 'Export to PDF',
+        reminderMessage: 'Don’t forget to vote before the deadline!'
+      },
+      id: {
+        title: 'Pemilihan Pemimpin Kelas',
+        lightMode: 'Tema Terang',
+        darkMode: 'Tema Gelap',
+        addCandidatePlaceholder: 'Tambahkan calon...',
+        add: 'Tambah',
+        support: 'Dukung',
+        thankYou: 'Terima kasih telah memilih!',
+        voteResults: 'Hasil Voting',
+        statistics: 'Statistik',
+        education: 'Informasi Calon',
+        comments: 'Komentar',
+        commentPlaceholder: 'Tulis komentar...',
+        exportPDF: 'Ekspor ke PDF',
+        reminderMessage: 'Jangan lupa untuk memilih sebelum batas waktu!'
+      }
     }
-  },
-  methods: {
-    addCandidate() {
-      if (this.newCandidate.trim() === '') {
+
+    const reminderMessage = ref('')
+
+    const totalVotes = () => {
+      return candidates.value.reduce((total, candidate) => total + candidate.votes, 0)
+    }
+
+    const currentLanguage = () => {
+      return translations[selectedLanguage.value]
+    }
+
+    const toggleDarkMode = () => {
+      isDarkMode.value = !isDarkMode.value
+    }
+
+    const changeLanguage = () => {
+      // This method is triggered when the user selects a different language.
+    }
+
+    const addCandidate = () => {
+      if (newCandidate.value.trim() === '') {
         Swal.fire({
           icon: 'error',
           title: 'Oops...',
-          text: 'Nama calon tidak boleh kosong.'
+          text: currentLanguage().addCandidatePlaceholder
         })
         return
       }
-      if (this.candidateExists(this.newCandidate.trim())) {
+      if (candidateExists(newCandidate.value.trim())) {
         Swal.fire({
           icon: 'error',
           title: 'Oops...',
-          text: 'Nama calon sudah ada.'
+          text: 'Candidate already exists.'
         })
         return
       }
-      this.candidates.push({ id: Date.now(), name: this.newCandidate.trim(), votes: 0 })
-      this.newCandidate = ''
-    },
-    addCandidateOnEnter(event) {
+      candidates.value.push({
+        id: Date.now(),
+        name: newCandidate.value.trim(),
+        votes: 0,
+        info: 'Informasi tentang calon...' // Placeholder for candidate info
+      })
+      newCandidate.value = ''
+    }
+
+    const addCandidateOnEnter = (event) => {
       if (event.key === 'Enter') {
-        this.addCandidate()
+        addCandidate()
       }
-    },
-    candidateExists(name) {
-      return this.candidates.some(
+    }
+
+    const candidateExists = (name) => {
+      return candidates.value.some(
         (candidate) => candidate.name.toLowerCase() === name.toLowerCase()
       )
-    },
-    vote(candidateId) {
-      if (!this.userHasVoted) {
-        const candidate = this.candidates.find((c) => c.id === candidateId)
+    }
+
+    const vote = (candidateId) => {
+      if (!userHasVoted.value) {
+        const candidate = candidates.value.find((c) => c.id === candidateId)
         if (candidate) {
           candidate.votes++
-          this.userHasVoted = true
+          userHasVoted.value = true
         }
       }
     }
-    // resetVotes() {
-    //   this.candidates.forEach((candidate) => (candidate.votes = 0))
-    //   this.userHasVoted = false
-    // }
+
+    const support = (candidateId) => {
+      Swal.fire({
+        icon: 'success',
+        title: 'Support Received',
+        text: `You supported ${candidates.value.find((c) => c.id === candidateId).name}`
+      })
+    }
+
+    const addComment = () => {
+      if (newComment.value.trim() !== '') {
+        comments.value.push({ id: Date.now(), text: newComment.value.trim() })
+        newComment.value = ''
+      }
+    }
+
+    const exportToPDF = () => {
+      const doc = new jsPDF()
+      doc.text(currentLanguage().title, 14, 16)
+      const tableData = candidates.value.map((candidate) => [candidate.name, candidate.votes])
+      autoTable(doc, {
+        head: [['Candidate', 'Votes']],
+        body: tableData,
+        startY: 30
+      })
+      doc.save('Voting_Results.pdf')
+    }
+
+    // Reminder functionality
+    const setReminder = () => {
+      reminderMessage.value = currentLanguage().reminderMessage
+      setTimeout(() => {
+        reminderMessage.value = ''
+      }, 10000) // Show reminder for 10 seconds
+    }
+
+    onMounted(() => {
+      setReminder()
+    })
+
+    return {
+      newCandidate,
+      candidates,
+      userHasVoted,
+      newComment,
+      comments,
+      isDarkMode,
+      selectedLanguage,
+      languages,
+      currentLanguage,
+      totalVotes,
+      toggleDarkMode,
+      changeLanguage,
+      addCandidate,
+      addCandidateOnEnter,
+      candidateExists,
+      vote,
+      support,
+      addComment,
+      exportToPDF,
+      reminderMessage
+    }
   }
 }
 </script>
@@ -104,19 +269,21 @@ export default {
 <style scoped>
 #app {
   font-family: 'Roboto', sans-serif;
-  background-color: #f5f5f5;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 20px;
   box-sizing: border-box;
   border-radius: 8px;
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
   width: 90%;
   max-width: 600px;
   margin: 50px auto;
   text-align: center;
-  background: #ffffff;
+}
+
+.dark {
+  background-color: #121212;
+  color: white;
 }
 
 .header {
@@ -127,9 +294,8 @@ export default {
   width: 100%;
 }
 
-h1 {
-  font-size: 24px;
-  margin: 0;
+button {
+  margin-left: 10px;
 }
 
 .input-group {
@@ -148,42 +314,13 @@ input {
   width: 70%;
 }
 
-button {
-  background-color: #6200ea;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 5px;
-  cursor: pointer;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition:
-    background-color 0.3s,
-    transform 0.1s;
-}
-
-button .icon {
-  margin-right: 8px; /* Adjust the margin between icon and text */
-}
-
-button:hover {
-  background-color: #3700b3;
-}
-
-button:active {
-  background-color: #03dac5;
-  transform: scale(0.98);
-}
-
 .candidates {
   width: 100%;
 }
 
 .candidate {
   display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
   margin: 10px 0;
   padding: 10px;
@@ -203,8 +340,8 @@ button:active {
   width: 100%;
 }
 
-.vote-count h2 {
-  margin-bottom: 10px;
+.statistics {
+  margin-top: 10px;
 }
 
 .result {
@@ -217,25 +354,40 @@ button:active {
   margin: 5px 0;
 }
 
-.actions {
+.education {
   margin-top: 20px;
+  width: 100%;
 }
 
-.thank-you {
-  color: #6200ea;
-  font-size: 20px;
-  margin: 20px 0;
+.candidate-info {
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  margin: 5px 0;
 }
 
-.candidate-name {
-  margin-left: 4px; /* Adjust the margin between icon and text */
+.comments {
+  margin-top: 20px;
+  width: 100%;
 }
 
-/* Styling for copyright */
+.comment {
+  padding: 5px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  margin: 5px 0;
+}
+
 .copyright {
   margin-top: 20px;
   font-size: 15px;
   color: black;
   text-align: center;
+}
+
+.reminder {
+  margin-top: 20px;
+  font-weight: bold;
+  color: red;
 }
 </style>
